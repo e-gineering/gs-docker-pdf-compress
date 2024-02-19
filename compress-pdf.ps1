@@ -1,45 +1,33 @@
-param(
-    [Parameter(Mandatory=$true)][string]$PdfDirectory,
-    [Parameter(Mandatory=$true)][string]$InputFile,
-    [Parameter(Mandatory=$true)][string]$OutputFile
-)
-
-function Convert-Pdf {
-    param (
-        [string]$PdfDirectory,
-        [string]$InputFile,
-        [string]$OutputFile
-    )
-
-    # Resolve input file path to an absolute path
-    $fullInputFilePath = Resolve-Path -Path $InputFile
-    $fullOutputFilePath = Join-Path -Path $PdfDirectory -ChildPath $OutputFile
-
-    # Docker volume mapping requires an absolute path
-    if (-not [System.IO.Path]::IsPathRooted($PdfDirectory)) {
-        $PdfDirectory = Resolve-Path -Path $PdfDirectory
-    }
-    
-    # Convert directory path to Docker compatible path
-    $dockerVolumePath = $PdfDirectory -replace '\\', '/'
-    
-    # Escape paths for regex
-    $escapedPdfDirectory = [regex]::Escape($PdfDirectory)
-  
-    # Correctly construct Docker-compatible file paths, ensuring the inclusion of a slash between '/data' and the filenames
-    $dockerInputFilePath = "/data/" + ($fullInputFilePath -replace $escapedPdfDirectory, '').Replace('\', '/').TrimStart('/')
-    $dockerOutputFilePath = "/data/" + ($fullOutputFilePath -replace $escapedPdfDirectory, '').Replace('\', '/').TrimStart('/')
-
-    $dockerCommand = "docker run --rm -v `"$dockerVolumePath`:/data`" my-ghostscript -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/ebook -dNOPAUSE -dQUIET -dBATCH -sOutputFile=`"$dockerOutputFilePath`" `"$dockerInputFilePath`""
-    Write-Host "Running command: $dockerCommand"
-    Invoke-Expression $dockerCommand
-
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "PDF conversion successful. Output file located at: $fullOutputFilePath"
-    } else {
-        Write-Error "PDF conversion failed."
-    }
+# Check arguments
+if ($args.Length -ne 3) {
+  Write-Host "Usage: $PSCommandPath <PDF Directory> <Input PDF> <Output PDF>"
+  exit 1
 }
 
-# Execute the function with the provided arguments
-Convert-Pdf -PdfDirectory $PdfDirectory -InputFile $InputFile -OutputFile $OutputFile
+$pdfDir = $args[0]
+$inputFile = $args[1]
+$outputFile = $args[2]
+
+# Validate PDF directory
+if (!(Test-Path -Path $pdfDir -PathType Container)) {
+  Write-Host "Error: The specified directory does not exist."
+  exit 1
+}
+
+# Validate input file
+if (!(Test-Path -Path "$pdfDir/$inputFile" -PathType Leaf)) {
+  Write-Host "Error: The specified input file does not exist in the given directory."
+  exit 1
+}
+
+# Run Docker command
+docker run --rm -v "${pdfDir}:/data" my-ghostscript -sDEVICE=pdfwrite -dPDFSETTINGS=/ebook -dNOPAUSE -dQUIET -dBATCH -sOutputFile="/data/$outputFile" "/data/$inputFile"
+
+
+# Directly after Docker command
+if ($LASTEXITCODE -eq 0) {
+  Write-Host "PDF conversion successful. Output file located at: $pdfDir/$outputFile"
+} else {
+  Write-Host "PDF conversion failed."
+  exit 1
+}
